@@ -1,0 +1,2 @@
+class ModelResetWarning(UserWarning):
+    pass
