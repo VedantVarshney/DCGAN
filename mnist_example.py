@@ -17,7 +17,7 @@ assert BATCH_SIZE % 2 == 0
 
 HALF_BATCH = int(BATCH_SIZE/2)
 
-NUM_EPOCHS = 5
+NUM_EPOCHS = 20
 
 # Number of training batches before alternating the trainable model.
 DISC_UPDATES = 1
@@ -44,7 +44,7 @@ def preprocess_real():
     return real_train, real_test
 
 
-def main():
+def main(verbose=True):
     clear_session()
 
     # real_train, real_test = preprocess_real()

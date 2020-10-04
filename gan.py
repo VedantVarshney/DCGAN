@@ -96,6 +96,7 @@ class GAN:
             x = BatchNormalization()(x)
             x = Conv2D(filters, self.kernal_size, strides=2, padding="same")(x)
             x = self.add_activation(x, activation)
+            x = Dropout(0.25)(x)
             return x
 
         inp = Input(shape=self.x_shape)
