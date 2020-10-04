@@ -12,4 +12,6 @@ class History:
         plt.ylabel("Loss")
         plt.plot(self.disc_loss, label="Discriminator", alpha=0.8)
         plt.plot(self.gen_loss, label="Generator", alpha=0.8)
+        plt.legend()
+        
         plt.show()

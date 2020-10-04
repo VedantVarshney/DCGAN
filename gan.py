@@ -288,7 +288,7 @@ class GAN:
             if (show_imgs or save_imgs):
                 random_seed = np.random.randn(1, self.latent_dims)
                 fake_img = self.generator.predict(random_seed).reshape(spatial_dim, spatial_dim)
-                plt.imshow(fake_img, cmap="gray")
+                plt.imshow(fake_img)
                 if save_imgs:
                     plt.savefig(f"{run_dir}/img_epoch{epoch+1}.png")
                 if not show_imgs:
