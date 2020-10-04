@@ -22,6 +22,7 @@ import tensorflow.keras.activations as activations
 from tensorflow.keras.layers import LeakyReLU, Layer
 
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import BinaryCrossentropy
 
 from gan_warnings import ModelResetWarning
 from history import History
@@ -90,7 +91,7 @@ class GAN:
             raise Exception(f"Invalid activation type: {type(activation)}.")
         return x
 
-    def create_discriminator(self, compile=True):
+    def create_discriminator(self):
 
         def add_block(x, filters, activation=LeakyReLU, input_shape=None):
             if input_shape is not None:
@@ -100,6 +101,7 @@ class GAN:
                 x = Conv2D(filters, self.kernal_size, padding="same")(x)
             x = BatchNormalization()(x)
             x = Conv2D(filters, self.kernal_size, strides=2, padding="same")(x)
+            x = BatchNormalization()(x)
             x = self.add_activation(x, activation)
             x = Dropout(0.25)(x)
             return x
@@ -111,13 +113,13 @@ class GAN:
             x = add_block(x, self.min_filters * (2**i))
 
         x = GlobalAveragePooling2D()(x)
-        x = Dense(1, activation=activations.sigmoid)(x)
+        # x = Dropout(0.4)(x)
+        x = Dense(1)(x)
 
         discriminator = Model(inputs=inp, outputs=x, name="discriminator")
 
-        if compile:
-            discriminator.compile(loss="binary_crossentropy",
-                optimizer=Adam(lr=self.disc_lr), metrics=["mae"])
+        discriminator.compile(loss=BinaryCrossentropy(from_logits=True),
+            optimizer=Adam(lr=self.disc_lr), metrics=["mae"])
 
         return discriminator
 
@@ -243,32 +245,32 @@ class GAN:
 
                     # BATCH_NORM:
 
-                    # random_real_indxs = np.random.choice(total_real, half_batch1)
-                    #
-                    # disc_loss += self.discriminator.train_on_batch(real_train[random_real_indxs],
-                    #                                 np.zeros([half_batch1, 1])+labels[1])[1]
-                    #
-                    # random_seed = np.random.randn(half_batch1, self.latent_dims)
-                    #
-                    # disc_loss += self.discriminator.train_on_batch(self.generator.predict(random_seed),
-                    #                                 np.zeros([half_batch2, 1])+labels[0])[1]
+                    random_real_indxs = np.random.choice(total_real, batch_size)
+
+                    disc_loss += 0.5 * self.discriminator.train_on_batch(real_train[random_real_indxs],
+                                                    np.zeros([batch_size, 1])+labels[1])[1]
+
+                    random_seed = np.random.randn(batch_size, self.latent_dims)
+
+                    disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
+                                                    np.zeros([batch_size, 1])+labels[0])[1]
 
                     # MIXING BATCH:
 
-                    random_seed = np.random.randn(half_batch2, self.latent_dims)
-
-                    random_real_indxs = np.random.choice(total_real, half_batch1)
-                    batch_data = np.concatenate((real_train[random_real_indxs],
-                                                self.generator.predict(random_seed)))
-
-                    discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
-                                                    np.zeros([half_batch2, 1])+labels[0]))
-
-                    shuffle_indxs = np.random.permutation(batch_size)
-                    discrim_labels = discrim_labels[shuffle_indxs]
-                    batch_x = batch_data[shuffle_indxs]
-
-                    disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
+                    # random_seed = np.random.randn(half_batch2, self.latent_dims)
+                    #
+                    # random_real_indxs = np.random.choice(total_real, half_batch1)
+                    # batch_data = np.concatenate((real_train[random_real_indxs],
+                    #                             self.generator.predict(random_seed)))
+                    #
+                    # discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
+                    #                                 np.zeros([half_batch2, 1])+labels[0]))
+                    #
+                    # shuffle_indxs = np.random.permutation(batch_size)
+                    # discrim_labels = discrim_labels[shuffle_indxs]
+                    # batch_x = batch_data[shuffle_indxs]
+                    #
+                    # disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
 
                 # Train Generator
                 gen_loss = 0
