@@ -243,17 +243,12 @@ class GAN:
                     random_seed = np.random.randn(half_batch1, self.latent_dims)
 
                     random_real_indxs = np.random.choice(total_real, half_batch1)
-                    batch_data = np.concatenate((real_train[random_real_indxs],
-                                                self.generator.predict(random_seed)))
 
-                    discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
-                                                    np.zeros([half_batch2, 1])+labels[0]))
+                    disc_loss += self.discriminator.train_on_batch(real_train[random_real_indxs],
+                                                    np.zeros([half_batch1, 1])+labels[1])
 
-                    shuffle_indxs = np.random.permutation(batch_size)
-                    discrim_labels = discrim_labels[shuffle_indxs]
-                    batch_x = batch_data[shuffle_indxs]
-
-                    disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
+                    disc_loss += self.discriminator.train_on_batch(self.generator.predict(random_seed),
+                                                    np.zeros([half_batch2, 1]+labels[0]))
 
                 # Train Generator
                 gen_loss = 0
