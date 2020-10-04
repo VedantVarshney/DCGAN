@@ -1,4 +1,6 @@
 Training_Runs/
+.DS_Store
+__pycache__/
 
 *.p
 *.csv
