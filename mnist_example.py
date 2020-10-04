@@ -9,7 +9,7 @@ import pickle
 
 from skimage.transform import resize
 
-from tqdm import tqdm, trange
+from tqdm.notebook import tqdm, trange
 
 
 BATCH_SIZE = 30
@@ -91,7 +91,15 @@ def main():
             disc_loss_history.append(disc_loss)
             gen_loss_history.append(gen_loss)
 
-        pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
+            pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
+
+        random_seed = np.random.randn(1, LATENT_DIMS)
+        fake_img = gan.generator.predict(random_seed).reshape(32, 32)
+        plt.imshow(fake_img)
+        plt.show()
+
+
+    return gan, disc_loss_history, gen_loss_history
 
 
 if __name__ == '__main__':
