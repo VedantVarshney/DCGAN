@@ -24,12 +24,17 @@ from tensorflow.keras.layers import LeakyReLU, Layer
 from tensorflow.keras.optimizers import Adam
 
 from gan_warnings import ModelResetWarning
+from history import History
 
 from functools import reduce
-import inspect
+import inspect, os, pickle
+from uuid import uuid4
 
 from math import ceil
 
+from tqdm.auto import trange
+from matplotlib import pyplot as plt
+import numpy as np
 
 class GAN:
     def __init__(self, x_shape, kernal_size,
@@ -54,6 +59,8 @@ class GAN:
         self.latent_dims = latent_dims
         self.strides = strides
         self.lr = lr
+
+        self.history = None
 
         self.discriminator = self.create_discriminator()
         self.generator = self.create_generator()
@@ -82,7 +89,7 @@ class GAN:
             if issubclass(activation, Layer):
                 x = activation()(x)
         else:
-            raise Exception(f"Invalid activation type {type(activation)}.")
+            raise Exception(f"Invalid activation type: {type(activation)}.")
         return x
 
     def create_discriminator(self, compile=True):
@@ -188,6 +195,89 @@ class GAN:
 
         return combined
 
-    def fit(self):
-        # TODO
-        pass
+    def train(self, real_train, num_epochs, batch_size,
+            disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True):
+        """
+        Arguments:
+        - real_train - preprocessed training examples of real data.
+        Shape (num_samples, spatial_dim, spatial_dim, channels) (np array)
+        - num_epochs - number of epochs to run (int)
+        - batch_size - (int)
+        - disc_updates - number of batch updates to perform per step for the
+        Discriminator before switching to the Generator (int)
+        - gen_updates - number of batch updates to perform per step for the
+        Generator before switching to the Discriminator (int)
+        - show_imgs - generate and display progress images (once per epoch) (bool)
+        - save_imgs - save images in run directory (bool)
+
+        Outputs:
+        - Updates weights of GAN instance
+        - Rewrites run history of GAN instance
+        - Creates new directory to save history pickle and progress images
+        """
+        assert self.x_shape == real_train.shape[1:]
+        spatial_dim = self.x_shape[0]
+
+        runs_root_dir = "Training_Runs"
+        if not os.path.isdir(runs_root_dir):
+            os.mkdir(runs_root_dir)
+
+        run_id = uuid4()
+        run_dir = f"{runs_root_dir}/{str(run_id)}"
+        os.mkdir(run_dir)
+
+        self.history = History(run_id)
+
+        total_real = len(real_train)
+        steps = int(total_real/batch_size)
+        half_batch1 = int(batch_size/2)
+        half_batch2 = int(batch_size - half_batch1)
+
+        for epoch in range(num_epochs):
+            pbar = trange(steps)
+            for step in pbar:
+
+                # Train Discriminator
+                disc_loss = 0
+                for _ in range(disc_updates):
+                    random_seed = np.random.randn(half_batch1, self.latent_dims)
+
+                    random_real_indxs = np.random.choice(total_real, half_batch1)
+                    batch_data = np.concatenate((real_train[random_real_indxs],
+                                                self.generator.predict(random_seed)))
+
+                    discrim_labels = np.concatenate((np.ones([half_batch1, 1]),
+                                                    np.zeros([half_batch2, 1])))
+
+                    shuffle_indxs = np.random.permutation(batch_size)
+                    discrim_labels = discrim_labels[shuffle_indxs]
+                    batch_x = batch_data[shuffle_indxs]
+
+                    disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
+
+                # Train Generator
+                gen_loss = 0
+                for _ in range(gen_updates):
+                    # Create new images (separate from those used to train discriminator)
+                    random_seed = np.random.randn(batch_size, self.latent_dims)
+                    gen_loss += self.combined.train_on_batch(random_seed, np.ones([batch_size, 1]))[1]
+
+                disc_loss /= disc_updates
+                gen_loss /= gen_updates
+                self.history.disc_loss.append(disc_loss)
+                self.history.gen_loss.append(gen_loss)
+
+                pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
+
+            if (show_imgs or save_imgs):
+                random_seed = np.random.randn(1, self.latent_dims)
+                fake_img = self.generator.predict(random_seed).reshape(spatial_dim, spatial_dim)
+                plt.imshow(fake_img)
+                if save_imgs:
+                    plt.savefig(f"{run_dir}/img_epoch{epoch+1}.png")
+                if not show_imgs:
+                    plt.clf()
+                else:
+                    plt.show()
+
+        pickle.dump(self.history, open(f"{run_dir}/history.p", "wb"))

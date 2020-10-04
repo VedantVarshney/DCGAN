@@ -9,7 +9,7 @@ import pickle
 
 from skimage.transform import resize
 
-from tqdm.notebook import tqdm, trange
+from tqdm.auto import tqdm, trange
 
 
 BATCH_SIZE = 30
@@ -32,7 +32,7 @@ assert TOTAL_REAL % BATCH_SIZE == 0
 steps = int(TOTAL_REAL / BATCH_SIZE)
 
 
-def preprocess_real():
+def preprocess_real(save_only=False):
     (real_train, _) , (real_test, _) = mnist.load_data()
 
     real_train = np.asarray([resize(img, (SPATIAL_DIM, SPATIAL_DIM)) for img in real_train])
@@ -41,7 +41,10 @@ def preprocess_real():
     real_train = (np.expand_dims(real_train, axis=-1)/127.5 - 1.).astype("float32")
     real_test = (np.expand_dims(real_test, axis=-1)/127.5 - 1.).astype("float32")
 
-    return real_train, real_test
+    if save_only:
+        pickle.dump((real_train, real_test), open("mnist_train_tuple.p", "wb"))
+    else:
+        return real_train, real_test
 
 
 def main(verbose=True):
@@ -52,55 +55,11 @@ def main(verbose=True):
     real_train, real_test = pickle.load(open("mnist_train_tuple.p", "rb"))
 
     gan = GAN(x_shape=real_train[0].shape, kernal_size=5,
-        latent_dims=LATENT_DIMS)
+        latent_dims=LATENT_DIMS, verbose=verbose)
 
-    disc_loss_history = []
-    gen_loss_history = []
+    gan.train(real_train, 1, BATCH_SIZE)
 
-    for epoch in range(NUM_EPOCHS):
-        pbar = trange(steps)
-        for step in pbar:
-
-            # Train Discriminator
-            disc_loss = 0
-            for _ in range(DISC_UPDATES):
-                random_seed = np.random.randn(HALF_BATCH, LATENT_DIMS)
-
-                random_real_indxs = np.random.choice(TOTAL_REAL, HALF_BATCH)
-                batch_data = np.concatenate((real_train[random_real_indxs],
-                                            gan.generator.predict(random_seed)))
-
-                discrim_labels = np.concatenate((np.ones([HALF_BATCH, 1]),
-                                                np.zeros([HALF_BATCH, 1])))
-
-                shuffle_indxs = np.random.permutation(BATCH_SIZE)
-                discrim_labels = discrim_labels[shuffle_indxs]
-                batch_x = batch_data[shuffle_indxs]
-
-                disc_loss += gan.discriminator.train_on_batch(batch_x, discrim_labels)[1]
-
-            # Train Generator
-            gen_loss = 0
-            for _ in range(GEN_UPDATES):
-                # Create new images (separate from those used to train discriminator)
-                random_seed = np.random.randn(BATCH_SIZE, LATENT_DIMS)
-                gen_loss += gan.combined.train_on_batch(random_seed, np.ones([BATCH_SIZE, 1]))[1]
-
-            disc_loss /= DISC_UPDATES
-            gen_loss /= GEN_UPDATES
-            disc_loss_history.append(disc_loss)
-            gen_loss_history.append(gen_loss)
-
-            pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
-
-        random_seed = np.random.randn(1, LATENT_DIMS)
-        fake_img = gan.generator.predict(random_seed).reshape(32, 32)
-        plt.imshow(fake_img)
-        plt.show()
-
-
-    return gan, disc_loss_history, gen_loss_history
-
+    return gan
 
 if __name__ == '__main__':
     main()
