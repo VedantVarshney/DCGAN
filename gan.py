@@ -240,15 +240,35 @@ class GAN:
                 # Train Discriminator
                 disc_loss = 0
                 for _ in range(disc_updates):
-                    random_seed = np.random.randn(half_batch1, self.latent_dims)
+
+                    # BATCH_NORM:
+
+                    # random_real_indxs = np.random.choice(total_real, half_batch1)
+                    #
+                    # disc_loss += self.discriminator.train_on_batch(real_train[random_real_indxs],
+                    #                                 np.zeros([half_batch1, 1])+labels[1])[1]
+                    #
+                    # random_seed = np.random.randn(half_batch1, self.latent_dims)
+                    #
+                    # disc_loss += self.discriminator.train_on_batch(self.generator.predict(random_seed),
+                    #                                 np.zeros([half_batch2, 1])+labels[0])[1]
+
+                    # MIXING BATCH:
+
+                    random_seed = np.random.randn(half_batch2, self.latent_dims)
 
                     random_real_indxs = np.random.choice(total_real, half_batch1)
+                    batch_data = np.concatenate((real_train[random_real_indxs],
+                                                self.generator.predict(random_seed)))
 
-                    disc_loss += self.discriminator.train_on_batch(real_train[random_real_indxs],
-                                                    np.zeros([half_batch1, 1])+labels[1])
+                    discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
+                                                    np.zeros([half_batch2, 1])+labels[0]))
 
-                    disc_loss += self.discriminator.train_on_batch(self.generator.predict(random_seed),
-                                                    np.zeros([half_batch2, 1]+labels[0]))
+                    shuffle_indxs = np.random.permutation(batch_size)
+                    discrim_labels = discrim_labels[shuffle_indxs]
+                    batch_x = batch_data[shuffle_indxs]
+
+                    disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
 
                 # Train Generator
                 gen_loss = 0
