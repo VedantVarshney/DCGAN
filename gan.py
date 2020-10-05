@@ -67,7 +67,7 @@ class GAN:
             assert hasattr(lr, "__len__")
             assert len(lr) == 2
             self.gen_lr, self.disc_lr = lr
-
+        
         self.history = None
 
         self.discriminator = self.create_discriminator()
