@@ -54,6 +54,7 @@ class GAN:
         - latent_dims - number of latent dimensions for Generator (optional)
         - strides - strides for convolutions (optional)
         - lr - learning rate (optional). (gen_lr, disc_lr) or int.
+        - load_dir - path of dir containing saved model to load
         """
         assert len(x_shape) == 3
 
@@ -84,9 +85,11 @@ class GAN:
             self.generator = self.create_generator()
             self.combined = self.create_combined()
         else:
-            self.discriminator = load_model("discriminator")
-            self.generator = load_model("generator")
-            self.combined = load_model("generator")
+            self.discriminator = load_model(f"{load_dir}/discriminator")
+            self.generator = load_model(f"{load_dir}/generator")
+            self.combined = load_model(f"{load_dir}/combined")
+            if verbose:
+                print("Models did load.")
 
         if verbose:
             self.print_summary()
@@ -129,7 +132,6 @@ class GAN:
             x = add_block(x, self.min_filters * (self.strides**i))
 
         x = GlobalAveragePooling2D()(x)
-        # x = Dropout(0.4)(x)
         x = Dense(1)(x)
 
         discriminator = Model(inputs=inp, outputs=x, name="discriminator")
@@ -208,15 +210,22 @@ class GAN:
     def save(self, dir):
         self.discriminator.trainable = False
         self.combined.save(f"{dir}/combined")
-        discriminator.trainable = True
+        self.discriminator.trainable = True
         self.generator.save(f"{dir}/generator")
         self.discriminator.save(f"{dir}/discriminator")
         self.discriminator.trainable = False
 
+    def generate(self, return_img=False, show_img=True):
+        fake_img = model.generator.predict(np.random.randn(1, 100))
+        plt.imshow(fake_img.reshape(*self.x_shape[:-1]))
+        plt.show()
+        if return_img:
+            return fake_img
+
 
     def train(self, real_train, num_epochs, batch_size,
             disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True,
-            labels=(0, 1)):
+            labels=(0, 1), unmixed_batches=True):
         """
         Arguments:
         - real_train - preprocessed training examples of real data.
@@ -230,6 +239,8 @@ class GAN:
         - show_imgs - generate and display progress images (once per epoch) (bool)
         - save_imgs - save images in run directory (bool)
         - labels - (negative label, positive label)
+        - unmixed_batches - True = discriminator batches have
+        zero real-fake entropy. False = fully mixed batch (50% fake, 50% real).
 
         Outputs:
         - Updates weights of GAN instance
@@ -267,34 +278,34 @@ class GAN:
                 disc_loss = 0
                 for _ in range(disc_updates):
 
-                    # UNMIXED BATCHES:
+                    if unmixed_batches:
 
-                    random_real_indxs = np.random.choice(total_real, batch_size)
+                        random_real_indxs = np.random.choice(total_real, batch_size)
 
-                    disc_loss += 0.5 * self.discriminator.train_on_batch(real_train[random_real_indxs],
-                                                    np.zeros([batch_size, 1])+labels[1])[1]
+                        disc_loss += 0.5 * self.discriminator.train_on_batch(real_train[random_real_indxs],
+                                                        np.zeros([batch_size, 1])+labels[1])[1]
 
-                    random_seed = np.random.randn(batch_size, self.latent_dims)
+                        random_seed = np.random.randn(batch_size, self.latent_dims)
 
-                    disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
-                                                    np.zeros([batch_size, 1])+labels[0])[1]
+                        disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
+                                                        np.zeros([batch_size, 1])+labels[0])[1]
 
+                    else:
                     # MIXED BATCHS:
+                        random_seed = np.random.randn(half_batch2, self.latent_dims)
 
-                    # random_seed = np.random.randn(half_batch2, self.latent_dims)
-                    #
-                    # random_real_indxs = np.random.choice(total_real, half_batch1)
-                    # batch_data = np.concatenate((real_train[random_real_indxs],
-                    #                             self.generator.predict(random_seed)))
-                    #
-                    # discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
-                    #                                 np.zeros([half_batch2, 1])+labels[0]))
-                    #
-                    # shuffle_indxs = np.random.permutation(batch_size)
-                    # discrim_labels = discrim_labels[shuffle_indxs]
-                    # batch_x = batch_data[shuffle_indxs]
-                    #
-                    # disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
+                        random_real_indxs = np.random.choice(total_real, half_batch1)
+                        batch_data = np.concatenate((real_train[random_real_indxs],
+                                                    self.generator.predict(random_seed)))
+
+                        discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
+                                                        np.zeros([half_batch2, 1])+labels[0]))
+
+                        shuffle_indxs = np.random.permutation(batch_size)
+                        discrim_labels = discrim_labels[shuffle_indxs]
+                        batch_x = batch_data[shuffle_indxs]
+
+                        disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
 
                 # Train Generator
                 gen_loss = 0
