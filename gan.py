@@ -13,7 +13,7 @@ https://towardsdatascience.com/generative-adversarial-network-gan-for-dummies-a-
 # TODO - fix multiples on output shape for certain x_shapes.
 
 import tensorflow as tf
-from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.models import Model, Sequential, load_model
 from tensorflow.keras.layers import \
 Dense, Dropout, Conv2D, Flatten, BatchNormalization, Conv2DTranspose, \
 Reshape, Input, GlobalAveragePooling2D, Activation
@@ -29,6 +29,7 @@ from history import History
 
 from functools import reduce
 import inspect, os, pickle
+from contextlib import redirect_stdout
 from uuid import uuid4
 
 from math import ceil
@@ -37,10 +38,13 @@ from tqdm.auto import trange
 from matplotlib import pyplot as plt
 import numpy as np
 
+import pprint
+pp = pprint.PrettyPrinter()
+
 class GAN:
     def __init__(self, x_shape, kernal_size,
-                num_blocks=4, min_filters=16, latent_dims=100, strides=2, lr=2e-4,
-                verbose=True):
+                num_blocks=2, min_filters=64, latent_dims=100, strides=2, lr=1e-4,
+                verbose=True, load_dir=None):
         """
         Arguments:
         - x_shape - shape of a single x sample (excl. batch dimension)
@@ -52,6 +56,11 @@ class GAN:
         - lr - learning rate (optional). (gen_lr, disc_lr) or int.
         """
         assert len(x_shape) == 3
+
+        for spatial_dim in x_shape[:-1]:
+            if not (spatial_dim/strides**num_blocks).is_integer():
+                raise Exception("Num_blocks incompatible with spatial dimension.\
+                Resize input or change num_blocks.")
 
         self.x_shape = x_shape
         self.kernal_size = kernal_size
@@ -67,12 +76,20 @@ class GAN:
             assert hasattr(lr, "__len__")
             assert len(lr) == 2
             self.gen_lr, self.disc_lr = lr
-        
+
         self.history = None
 
-        self.discriminator = self.create_discriminator()
-        self.generator = self.create_generator()
-        self.combined = self.create_combined(verbose=verbose)
+        if load_dir is None:
+            self.discriminator = self.create_discriminator()
+            self.generator = self.create_generator()
+            self.combined = self.create_combined()
+        else:
+            self.discriminator = load_model("discriminator")
+            self.generator = load_model("generator")
+            self.combined = load_model("generator")
+
+        if verbose:
+            self.print_summary()
 
     def reset_models(self):
         self.generator = self.create_generator()
@@ -93,24 +110,23 @@ class GAN:
 
     def create_discriminator(self):
 
-        def add_block(x, filters, activation=LeakyReLU, input_shape=None):
+        def add_block(x, filters, activation=LeakyReLU, input_shape=None,
+                    dropout=0.3):
             if input_shape is not None:
-                x = Conv2D(filters, self.kernal_size, padding="same",
+                x = Conv2D(filters, self.kernal_size, strides=self.strides, padding="same",
                     input_shape=input_shape, data_format="channels_last")(x)
             else:
-                x = Conv2D(filters, self.kernal_size, padding="same")(x)
-            x = BatchNormalization()(x)
-            x = Conv2D(filters, self.kernal_size, strides=2, padding="same")(x)
-            x = BatchNormalization()(x)
+                x = Conv2D(filters, self.kernal_size, strides=self.strides, padding="same")(x)
+
             x = self.add_activation(x, activation)
-            x = Dropout(0.25)(x)
+            x = Dropout(dropout)(x)
             return x
 
         inp = Input(shape=self.x_shape)
 
         x = add_block(inp, self.min_filters, input_shape=self.x_shape)
         for i in range(1, self.num_blocks):
-            x = add_block(x, self.min_filters * (2**i))
+            x = add_block(x, self.min_filters * (self.strides**i))
 
         x = GlobalAveragePooling2D()(x)
         # x = Dropout(0.4)(x)
@@ -125,47 +141,41 @@ class GAN:
 
     def create_generator(self):
 
-        def add_block(x, filters, activation=LeakyReLU, input_shape=None):
-            if input_shape is not None:
-                x = Conv2DTranspose(filters, self.kernal_size, strides=self.strides,
-                    padding="same", input_shape=input_shape,
-                    data_format="channels_last")(x)
-            else:
-                x = Conv2DTranspose(filters, self.kernal_size, strides=self.strides,
-                    padding="same")(x)
+        def add_block(x, filters, activation=LeakyReLU, strides=self.strides):
+            x = Conv2DTranspose(filters, self.kernal_size, strides=strides,
+                padding="same", use_bias=False)(x)
             x = BatchNormalization()(x)
             x = self.add_activation(x, activation)
             return x
 
         inp = Input(shape=(self.latent_dims, ))
 
-        conv_output_sizes = self.conv_output_shape(self.x_shape[:-1], self.strides,
-                            self.num_blocks)
-        num_filters = self.min_filters * (2**(self.num_blocks-1))
+        # TODO - maybe change number of filters increasing expon. with stride.
+        num_filters = int(self.min_filters * (self.strides**(self.num_blocks-1)))
 
-        input_vol = reduce(lambda x, y: x*y, conv_output_sizes) * num_filters
+        disc_output_spatial_dim = [int(dim/self.strides**self.num_blocks) \
+            for dim in self.x_shape[:-1]]
+
+        # Double inner dimension for first 3D tensor (relative to the last
+        # 3D tensor in the discriminator)
+        input_vol = int(np.prod(disc_output_spatial_dim) * num_filters*2)
+
         x = Dense(input_vol)(inp)
         x = BatchNormalization()(x)
+        x = LeakyReLU()(x)
 
-        input_shape = (*conv_output_sizes, num_filters)
+        input_shape = (*disc_output_spatial_dim, num_filters*2)
         x = Reshape(target_shape=input_shape)(x)
 
-        for i in range(self.num_blocks-2, -1, -1):
-            x = add_block(x, self.min_filters * (2**i))
+        # Initial convolution with no change in shape
+        x =  add_block(x, num_filters, strides=(1,1))
 
-        x = add_block(x, self.min_filters)
-
-        # Project result to shape which can be handled by Discriminator
-        # TODO - Introduces too many parameters!
-        # x = Flatten()(x)
-        # x = Dense(reduce(lambda x,y: x*y, self.x_shape))(x)
-        # x = BatchNormalization()(x)
-        # x = Activation(activations.tanh)(x)
-        # x = Reshape(target_shape=self.x_shape)(x)
+        for i in range(1, self.num_blocks):
+            x = add_block(x, num_filters/(2**i))
 
         # Add channels (e.g. RGB)
-        x = Conv2D(self.x_shape[-1], self.kernal_size,
-            padding="same", activation=activations.tanh)(x)
+        x = Conv2DTranspose(self.x_shape[-1], self.kernal_size,
+            padding="same", strides=self.strides, use_bias=False, activation="tanh")(x)
 
         return Model(inputs=inp, outputs=x, name="generator")
 
@@ -178,22 +188,31 @@ class GAN:
 
         return inp_sizes
 
-    def create_combined(self, verbose=True):
+    def create_combined(self):
         combined = Sequential(name="combined")
         combined.add(self.generator)
         combined.add(self.discriminator)
 
         self.discriminator.trainable = False
 
-        combined.compile(loss='binary_crossentropy',
+        combined.compile(loss=BinaryCrossentropy(from_logits=True),
             optimizer=Adam(lr=self.gen_lr), metrics=['mae'])
 
-        if verbose:
-            print(self.generator.summary(), "\n")
-            print(self.discriminator.summary(), "\n")
-            print(combined.summary(), "\n")
-
         return combined
+
+    def print_summary(self):
+        self.generator.summary()
+        self.discriminator.summary()
+        self.combined.summary()
+
+    def save(self, dir):
+        self.discriminator.trainable = False
+        self.combined.save(f"{dir}/combined")
+        discriminator.trainable = True
+        self.generator.save(f"{dir}/generator")
+        self.discriminator.save(f"{dir}/discriminator")
+        self.discriminator.trainable = False
+
 
     def train(self, real_train, num_epochs, batch_size,
             disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True,
@@ -218,7 +237,7 @@ class GAN:
         - Creates new directory to save history pickle and progress images
         """
         assert self.x_shape == real_train.shape[1:]
-        spatial_dim = self.x_shape[0]
+        spatial_dims = self.x_shape[:-1]
 
         runs_root_dir = "Training_Runs"
         if not os.path.isdir(runs_root_dir):
@@ -227,6 +246,11 @@ class GAN:
         run_id = uuid4()
         run_dir = f"{runs_root_dir}/{str(run_id)}"
         os.mkdir(run_dir)
+
+        # Save readable model architecture summary for later reference
+        with open(f"{run_dir}/model_summary.txt", "w") as f:
+            with redirect_stdout(f):
+                self.print_summary()
 
         self.history = History(run_id)
 
@@ -243,7 +267,7 @@ class GAN:
                 disc_loss = 0
                 for _ in range(disc_updates):
 
-                    # BATCH_NORM:
+                    # UNMIXED BATCHES:
 
                     random_real_indxs = np.random.choice(total_real, batch_size)
 
@@ -255,7 +279,7 @@ class GAN:
                     disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
                                                     np.zeros([batch_size, 1])+labels[0])[1]
 
-                    # MIXING BATCH:
+                    # MIXED BATCHS:
 
                     # random_seed = np.random.randn(half_batch2, self.latent_dims)
                     #
@@ -289,7 +313,7 @@ class GAN:
 
             if (show_imgs or save_imgs):
                 random_seed = np.random.randn(1, self.latent_dims)
-                fake_img = self.generator.predict(random_seed).reshape(spatial_dim, spatial_dim)
+                fake_img = self.generator.predict(random_seed).reshape(*spatial_dims)
                 plt.imshow(fake_img)
                 if save_imgs:
                     plt.savefig(f"{run_dir}/img_epoch{epoch+1}.png")

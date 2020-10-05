@@ -11,7 +11,7 @@ def test_model_architectures():
         - Generator output has same shape as discriminator input
         - Discriminator has no trainable params
     """
-    gan = GAN(x_shape=(32, 32, 1), kernal_size=5, verbose=True, num_blocks=4,
+    gan = GAN(x_shape=(28, 28, 1), kernal_size=5, verbose=True, num_blocks=2,
             strides=2)
 
 if __name__ == '__main__':
