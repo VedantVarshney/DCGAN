@@ -16,13 +16,15 @@ import tensorflow as tf
 from tensorflow.keras.models import Model, Sequential, load_model
 from tensorflow.keras.layers import \
 Dense, Dropout, Conv2D, Flatten, BatchNormalization, Conv2DTranspose, \
-Reshape, Input, GlobalAveragePooling2D, Activation
+Reshape, Input, GlobalAveragePooling2D, Activation, Lambda, Concatenate
 
 import tensorflow.keras.activations as activations
 from tensorflow.keras.layers import LeakyReLU, Layer
 
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import BinaryCrossentropy
+
+from tensorflow.keras import backend as kback
 
 from gan_warnings import ModelResetWarning
 from history import History
@@ -37,9 +39,6 @@ from math import ceil
 from tqdm.auto import trange
 from matplotlib import pyplot as plt
 import numpy as np
-
-import pprint
-pp = pprint.PrettyPrinter()
 
 class GAN:
     def __init__(self, x_shape, kernal_size,
@@ -94,6 +93,15 @@ class GAN:
         if verbose:
             self.print_summary()
 
+    # def __getstate__(self):
+    #     pass
+    #
+    # def __setstate__(self, state):
+    #     pass
+
+    def __repr__(self):
+        return str(self.__dict__)
+
     def reset_models(self):
         self.generator = self.create_generator()
         self.discriminator = self.create_discriminator()
@@ -125,6 +133,21 @@ class GAN:
             x = Dropout(dropout)(x)
             return x
 
+        def add_minibatch_discrimination(x, num_kernals=5, kernal_dim=3):
+            vol = int(num_kernals * kernal_dim)
+            x_sub = Dense(vol, use_bias=False)(x)
+            x_sub = Reshape((num_kernals, kernal_dim))(x_sub)
+            x_sub = Lambda(discriminator)(x_sub)
+            concat = Concatenate(axis=1)([x, x_sub])
+            return concat
+
+        def discriminator(x_sub):
+            x_sub = kback.expand_dims(x_sub, 3) - \
+                kback.expand_dims(kback.permute_dimensions(x_sub, [1, 2, 0]), 0)
+            x_sub = kback.sum(kback.abs(x_sub), axis=2)
+            x_sub = kback.sum(kback.exp(-x_sub), axis=2)
+            return x_sub
+
         inp = Input(shape=self.x_shape)
 
         x = add_block(inp, self.min_filters, input_shape=self.x_shape)
@@ -132,9 +155,13 @@ class GAN:
             x = add_block(x, self.min_filters * (self.strides**i))
 
         x = GlobalAveragePooling2D()(x)
-        x = Dense(1)(x)
 
-        discriminator = Model(inputs=inp, outputs=x, name="discriminator")
+        # Minibatch discrimination to prevent modal collapse
+        concat = add_minibatch_discrimination(x)
+
+        concat = Dense(1)(concat)
+
+        discriminator = Model(inputs=inp, outputs=concat, name="discriminator")
 
         discriminator.compile(loss=BinaryCrossentropy(from_logits=True),
             optimizer=Adam(lr=self.disc_lr), metrics=["mae"])
@@ -215,8 +242,8 @@ class GAN:
         self.discriminator.save(f"{dir}/discriminator")
         self.discriminator.trainable = False
 
-    def generate(self, return_img=False, show_img=True):
-        fake_img = model.generator.predict(np.random.randn(1, 100))
+    def generate_img(self, return_img=False, show_img=True):
+        fake_img = self.generator.predict(np.random.randn(1, 100))
         plt.imshow(fake_img.reshape(*self.x_shape[:-1]))
         plt.show()
         if return_img:
@@ -238,7 +265,8 @@ class GAN:
         Generator before switching to the Discriminator (int)
         - show_imgs - generate and display progress images (once per epoch) (bool)
         - save_imgs - save images in run directory (bool)
-        - labels - (negative label, positive label)
+        - labels - (negative label, positive label) e.g. (0, 0.9) for one-sided,
+        positive label smoothing.
         - unmixed_batches - True = discriminator batches have
         zero real-fake entropy. False = fully mixed batch (50% fake, 50% real).
 
@@ -246,6 +274,7 @@ class GAN:
         - Updates weights of GAN instance
         - Rewrites run history of GAN instance
         - Creates new directory to save history pickle and progress images
+        - Displays progressbars and progress images
         """
         assert self.x_shape == real_train.shape[1:]
         spatial_dims = self.x_shape[:-1]
