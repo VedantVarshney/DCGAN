@@ -79,25 +79,64 @@ class GAN:
 
         self.history = None
 
-        if load_dir is None:
-            self.discriminator = self.create_discriminator()
-            self.generator = self.create_generator()
-            self.combined = self.create_combined()
-        else:
-            self.discriminator = load_model(f"{load_dir}/discriminator")
-            self.generator = load_model(f"{load_dir}/generator")
-            self.combined = load_model(f"{load_dir}/combined")
-            if verbose:
-                print("Models did load.")
+        self.discriminator = self.create_discriminator()
+        self.generator = self.create_generator()
+        self.combined = self.create_combined()
 
         if verbose:
             self.print_summary()
 
-    # def __getstate__(self):
-    #     pass
-    #
-    # def __setstate__(self, state):
-    #     pass
+    @classmethod
+    def load(cls, gan_fpath, model_dir=None):
+        model = pickle.load(open(gan_fpath, "rb"))
+        if model_dir is None:
+            model.reset_models()
+        else:
+            model.load_model(model_dir)
+        return model
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Prevent models and history from being pickled
+        unpicklable_attribs = ["discriminator", "generator", "combined", "history"]
+        for param in unpicklable_attribs:
+            state[param] = None
+        return state
+
+    def __setstate__(self, state):
+        # Do not need to validate attributes as would have been checked in init
+        # of previous instance
+        self.__dict__.update(state)
+
+    def save(self, gan_fpath, model_dir="model"):
+        # Save parameters
+        pickle.dump(self, open(gan_fpath, "wb"))
+
+        if not os.path.isdir(model_dir):
+            os.mkdir(model_dir)
+
+        # Save models in preferred format (not pickle) along with history
+        self.discriminator.trainable = False
+        self.combined.save(f"{model_dir}/combined")
+        self.discriminator.trainable = True
+        self.generator.save(f"{model_dir}/generator")
+        self.discriminator.save(f"{model_dir}/discriminator")
+        self.discriminator.trainable = False
+
+        pickle.dump(self.history, open(f"{model_dir}/history.p", "wb"))
+
+    def load_model(self, load_dir, verbose=True):
+        # load models and associated history
+        # Usually called manually after a pickle load of all other attributes
+        self.discriminator = load_model(f"{load_dir}/discriminator")
+        self.generator = load_model(f"{load_dir}/generator")
+        self.combined = load_model(f"{load_dir}/combined")
+        self.history = pickle.load(open(f"{load_dir}/history.p", "rb"))
+        if verbose:
+            self.print_summary()
+
+        # TODO - check whether existing parameters and attributes agree with those
+        # in the loaded model.
 
     def __repr__(self):
         return str(self.__dict__)
@@ -233,14 +272,6 @@ class GAN:
         self.generator.summary()
         self.discriminator.summary()
         self.combined.summary()
-
-    def save(self, dir):
-        self.discriminator.trainable = False
-        self.combined.save(f"{dir}/combined")
-        self.discriminator.trainable = True
-        self.generator.save(f"{dir}/generator")
-        self.discriminator.save(f"{dir}/discriminator")
-        self.discriminator.trainable = False
 
     def generate_img(self, return_img=False, show_img=True):
         fake_img = self.generator.predict(np.random.randn(1, 100))
