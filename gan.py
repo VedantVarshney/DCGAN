@@ -30,7 +30,7 @@ from gan_warnings import ModelResetWarning
 from history import History
 
 from functools import reduce
-import inspect, os, pickle
+import inspect, os, pickle, types
 from contextlib import redirect_stdout
 from uuid import uuid4
 
@@ -273,9 +273,16 @@ class GAN:
         self.discriminator.summary()
         self.combined.summary()
 
-    def generate_img(self, return_img=False, show_img=True):
+    def generate_img(self, return_img=False, show_img=True, cmap=None):
         fake_img = self.generator.predict(np.random.randn(1, 100))
-        plt.imshow(fake_img.reshape(*self.x_shape[:-1]))
+
+        if fake_img.shape[-1] == 1:
+            # Collapse channel dimension if 1
+            fake_img = fake_img.reshape(fake_img.shape[1:3])
+        else:
+            fake_img = fake_img.reshape(fake_img.shape[1:4])
+
+        plt.imshow(fake_img, cmap=cmap)
         plt.show()
         if return_img:
             return fake_img
@@ -283,13 +290,14 @@ class GAN:
 
     def train(self, real_train, num_epochs, batch_size,
             disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True,
-            labels=(0, 1), unmixed_batches=True):
+            labels=(0, 1), cmap=None, total_real=None):
         """
         Arguments:
-        - real_train - preprocessed training examples of real data.
-        Shape (num_samples, spatial_dim, spatial_dim, channels) (np array)
+        - real_train - Either nparray of real samples.
+        Shape (num_samples, spatial_dim, spatial_dim, channels)
+        OR a batch generator. Must then provide total_real.
         - num_epochs - number of epochs to run (int)
-        - batch_size - (int)
+        - batch_size - (int). Must match that of batch generator (if used).
         - disc_updates - number of batch updates to perform per step for the
         Discriminator before switching to the Generator (int)
         - gen_updates - number of batch updates to perform per step for the
@@ -298,8 +306,8 @@ class GAN:
         - save_imgs - save images in run directory (bool)
         - labels - (negative label, positive label) e.g. (0, 0.9) for one-sided,
         positive label smoothing.
-        - unmixed_batches - True = discriminator batches have
-        zero real-fake entropy. False = fully mixed batch (50% fake, 50% real).
+        - cmap - cmap for plt.imshow.
+        - total_real - must provide if generator passed as real_train.
 
         Outputs:
         - Updates weights of GAN instance
@@ -307,7 +315,16 @@ class GAN:
         - Creates new directory to save history pickle and progress images
         - Displays progressbars and progress images
         """
-        assert self.x_shape == real_train.shape[1:]
+        if not isinstance(real_train, types.GeneratorType):
+            assert isinstance(real_train, np.ndarray)
+            assert self.x_shape == real_train.shape[1:]
+            total_real = len(real_train)
+            # TODO - also check shape agreement if generator was passed
+        else:
+            # must provide num of total samples if generator was passed
+            assert type(total_real) is int
+            real_gen = real_train
+
         spatial_dims = self.x_shape[:-1]
 
         runs_root_dir = "Training_Runs"
@@ -325,47 +342,38 @@ class GAN:
 
         self.history = History(run_id)
 
-        total_real = len(real_train)
-        steps = int(total_real/batch_size)
-        half_batch1 = int(batch_size/2)
-        half_batch2 = int(batch_size - half_batch1)
+        # TODO - Warn np array dataset is truncated to be divisible by batch size.
+        steps = int(total_real//batch_size)
+
+        def array_to_gen(random_real_indxs, steps):
+            """
+            Nested funct to wrap np array into a batch generator
+            """
+            while True:
+                for i in range(steps):
+                    yield real_train[random_real_indxs[i]], np.zeros([batch_size, 1])+labels[1]
 
         for epoch in range(num_epochs):
             pbar = trange(steps)
-            for step in pbar:
 
+            random_real_indxs = np.random.permutation(int(batch_size*steps))\
+                                .reshape(steps, batch_size)
+
+            if isinstance(real_train, np.ndarray):
+                real_gen = array_to_gen(random_real_indxs, steps)
+
+            for step in pbar:
                 # Train Discriminator
                 disc_loss = 0
                 for _ in range(disc_updates):
+                    # Generator may take time to initialise (e.g. ImageDataGenerator)
+                    # Cannot consume the generator in model.fit - need to train on BATCH
+                    disc_loss += 0.5 * self.discriminator.train_on_batch(*next(real_gen))[1]
 
-                    if unmixed_batches:
+                    random_seed = np.random.randn(batch_size, self.latent_dims)
 
-                        random_real_indxs = np.random.choice(total_real, batch_size)
-
-                        disc_loss += 0.5 * self.discriminator.train_on_batch(real_train[random_real_indxs],
-                                                        np.zeros([batch_size, 1])+labels[1])[1]
-
-                        random_seed = np.random.randn(batch_size, self.latent_dims)
-
-                        disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
-                                                        np.zeros([batch_size, 1])+labels[0])[1]
-
-                    else:
-                    # MIXED BATCHS:
-                        random_seed = np.random.randn(half_batch2, self.latent_dims)
-
-                        random_real_indxs = np.random.choice(total_real, half_batch1)
-                        batch_data = np.concatenate((real_train[random_real_indxs],
-                                                    self.generator.predict(random_seed)))
-
-                        discrim_labels = np.concatenate((np.zeros([half_batch1, 1])+labels[1],
-                                                        np.zeros([half_batch2, 1])+labels[0]))
-
-                        shuffle_indxs = np.random.permutation(batch_size)
-                        discrim_labels = discrim_labels[shuffle_indxs]
-                        batch_x = batch_data[shuffle_indxs]
-
-                        disc_loss += self.discriminator.train_on_batch(batch_x, discrim_labels)[1]
+                    disc_loss += 0.5 * self.discriminator.train_on_batch(self.generator.predict(random_seed),
+                                                    np.zeros([batch_size, 1])+labels[0])[1]
 
                 # Train Generator
                 gen_loss = 0
@@ -384,8 +392,15 @@ class GAN:
 
             if (show_imgs or save_imgs):
                 random_seed = np.random.randn(1, self.latent_dims)
-                fake_img = self.generator.predict(random_seed).reshape(*spatial_dims)
-                plt.imshow(fake_img)
+                fake_img = self.generator.predict(random_seed)
+
+                if fake_img.shape[-1] == 1:
+                    # Collapse channel dimension if 1
+                    fake_img = fake_img.reshape(fake_img.shape[1:3])
+                else:
+                    fake_img = fake_img.reshape(fake_img.shape[1:4])
+                plt.imshow(fake_img, cmap=cmap)
+
                 if save_imgs:
                     plt.savefig(f"{run_dir}/img_epoch{epoch+1}.png")
                 if not show_imgs:
