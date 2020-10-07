@@ -273,24 +273,34 @@ class GAN:
         self.discriminator.summary()
         self.combined.summary()
 
-    def generate_img(self, return_img=False, show_img=True, cmap=None):
-        fake_img = self.generator.predict(np.random.randn(1, 100))
+    def generate_imgs(self, return_imgs=False, cmap=None):
+        num = 4
+        fake_imgs = self.generator.predict(np.random.randn(num, self.latent_dims))
+        assert len(fake_imgs) == 4
+        returns = []
+        fig = self.create_imgs_fig(fake_imgs, 2, 2, cmap=cmap)
 
-        if fake_img.shape[-1] == 1:
-            # Collapse channel dimension if 1
-            fake_img = fake_img.reshape(fake_img.shape[1:3])
+        if return_imgs:
+            return fig, fake_imgs
         else:
-            fake_img = fake_img.reshape(fake_img.shape[1:4])
+            return fig
 
-        plt.imshow(fake_img, cmap=cmap)
-        plt.show()
-        if return_img:
-            return fake_img
-
+    @staticmethod
+    def create_imgs_fig(imgs, rows, columns, cmap=None):
+        assert len(imgs) == int(rows*columns)
+        if imgs.shape[-1] == 1:
+            # flatten channels dimension if 1
+            imgs = imgs[:,:,:,0]
+        fig = plt.figure(figsize=(8, 8))
+        for i, img in enumerate(imgs):
+            fig.add_subplot(rows, columns, i+1)
+            plt.imshow(img, cmap=cmap)
+            plt.axis("off")
+        return fig
 
     def train(self, real_train, num_epochs, batch_size,
             disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True,
-            labels=(0, 1), cmap=None, total_real=None):
+            labels=(0, 1), cmap=None, total_real=None, progress_frac=1):
         """
         Arguments:
         - real_train - Either nparray of real samples.
@@ -308,6 +318,8 @@ class GAN:
         positive label smoothing.
         - cmap - cmap for plt.imshow.
         - total_real - must provide if generator passed as real_train.
+        - progress_frac - show/save progress images every {progress_frac} epoch.
+        E.g. every 1 epoch, every 0.25 epochs etc.
 
         Outputs:
         - Updates weights of GAN instance
@@ -319,11 +331,14 @@ class GAN:
             assert isinstance(real_train, np.ndarray)
             assert self.x_shape == real_train.shape[1:]
             total_real = len(real_train)
-            # TODO - also check shape agreement if generator was passed
         else:
+            # TODO - also check shape agreement if generator was passed
             # must provide num of total samples if generator was passed
-            assert type(total_real) is int
             real_gen = real_train
+
+        for i in (batch_size, disc_updates, gen_updates, total_real):
+            assert type(i) is int
+            assert i != 0
 
         spatial_dims = self.x_shape[:-1]
 
@@ -344,6 +359,10 @@ class GAN:
 
         # TODO - Warn np array dataset is truncated to be divisible by batch size.
         steps = int(total_real//batch_size)
+
+        progress_steps = int(progress_frac * steps)
+        if progress_steps == 0:
+            progress_steps += 1
 
         def array_to_gen(random_real_indxs, steps):
             """
@@ -390,22 +409,16 @@ class GAN:
 
                 pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
 
-            if (show_imgs or save_imgs):
-                random_seed = np.random.randn(1, self.latent_dims)
-                fake_img = self.generator.predict(random_seed)
+                # HACK - investigate why step isn't already an int
+                if (int(step+1)/progress_steps).is_integer():
+                    if (show_imgs or save_imgs):
+                        fig = self.generate_imgs()
 
-                if fake_img.shape[-1] == 1:
-                    # Collapse channel dimension if 1
-                    fake_img = fake_img.reshape(fake_img.shape[1:3])
-                else:
-                    fake_img = fake_img.reshape(fake_img.shape[1:4])
-                plt.imshow(fake_img, cmap=cmap)
-
-                if save_imgs:
-                    plt.savefig(f"{run_dir}/img_epoch{epoch+1}.png")
-                if not show_imgs:
-                    plt.clf()
-                else:
-                    plt.show()
+                        if save_imgs:
+                            plt.savefig(f"{run_dir}/img_epoch{epoch+1}_step{step+1}.png")
+                        if  show_imgs:
+                            plt.show()
+                        else:
+                            plt.clf()
 
         pickle.dump(self.history, open(f"{run_dir}/history.p", "wb"))
