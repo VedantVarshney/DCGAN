@@ -1,3 +1,3 @@
 # GAN Practice
 
-An exercise project to practice implementing GANs.
+An exercise project to practice implementing DCGANs.
