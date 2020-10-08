@@ -23,20 +23,17 @@ class TestModelOutputShapes(tf.test.TestCase):
         clear_session()
 
     def test_model_shapes(self):
-        model = GAN(x_shape=(28, 28, 1), kernal_size=5, verbose=False,
-            num_blocks=2, latent_dims=100, strides=2)
+        """
+        Test model output and input shapes.
+        """
 
-        self.assertEqual((None, 28, 28, 1), model.generator.output_shape)
-        self.assertEqual((None, 1), model.discriminator.output_shape)
-        self.assertEqual((None, 1), model.combined.output_shape)
-        self.assertEqual(model.generator.output_shape, model.discriminator.input_shape)
+        self.assertEqual(self.model.generator.input_shape, (None, self.model.latent_dims))
+        self.assertEqual(self.model.combined.input_shape, (None, self.model.latent_dims))
+        self.assertEqual(self.model.discriminator.input_shape, (None, *self.model.x_shape))
 
-
-class TestModelTraining(tf.test.TestCase):
-
-    def setUp(self):
-        super().setUp()
-
+        self.assertEqual((None, *self.model.x_shape), self.model.generator.output_shape)
+        self.assertEqual((None, 1), self.model.discriminator.output_shape)
+        self.assertEqual((None, 1), self.model.combined.output_shape)
 
 if __name__ == '__main__':
     tf.test.main()

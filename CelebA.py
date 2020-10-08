@@ -16,12 +16,12 @@ def preproc_img(img):
     return img - 0.5
 
 def postproc_img(img):
-    return (img + 0.5)*255
+    return (img + 0.5)
 
 
 def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_label=1):
-    img_gen = image.ImageDataGenerator(rescale=1/255.,
-        preprocessing_function=preproc_img)
+    img_gen = image.ImageDataGenerator(rescale=1/255.)
+        # preprocessing_function=preproc_img)
 
     img_flow = img_gen.flow_from_directory(imgs_dir,
                 class_mode="binary",

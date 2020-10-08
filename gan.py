@@ -264,11 +264,17 @@ class GAN:
         self.discriminator.summary()
         self.combined.summary()
 
-    def generate_imgs(self, return_imgs=False, cmap=None):
+    def generate_imgs(self, return_imgs=False, cmap=None,
+        postproc_func=None):
         num = 4
         fake_imgs = self.generator.predict(np.random.randn(num, self.latent_dims))
-        assert len(fake_imgs) == 4
-        returns = []
+
+        if postproc_func is not None:
+            assert isinstance(postproc_func, types.FunctionType)
+            fake_imgs = postproc_func(fake_imgs)
+            assert isinstance(fake_imgs, np.ndarray)
+            assert len(fake_imgs) == 4
+
         fig = self.create_imgs_fig(fake_imgs, 2, 2, cmap=cmap)
 
         if return_imgs:
@@ -291,7 +297,8 @@ class GAN:
 
     def train(self, real_train, num_epochs, batch_size,
             disc_updates=1, gen_updates=1, show_imgs=True, save_imgs=True,
-            labels=(0, 1), cmap=None, total_real=None, progress_frac=1):
+            labels=(0, 1), cmap=None, total_real=None, progress_frac=1,
+            postproc_func=None):
         """
         Arguments:
         - real_train - Either nparray of real samples.
@@ -403,7 +410,7 @@ class GAN:
                 # HACK - investigate why step isn't already an int
                 if (int(step+1)/progress_steps).is_integer():
                     if (show_imgs or save_imgs):
-                        fig = self.generate_imgs()
+                        fig = self.generate_imgs(postproc_func=postproc_func)
 
                         if save_imgs:
                             plt.savefig(f"{run_dir}/img_epoch{epoch+1}_step{step+1}.png")
