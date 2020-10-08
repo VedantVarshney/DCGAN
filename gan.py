@@ -176,11 +176,11 @@ class GAN:
             vol = int(num_kernals * kernal_dim)
             x_sub = Dense(vol, use_bias=False)(x)
             x_sub = Reshape((num_kernals, kernal_dim))(x_sub)
-            x_sub = Lambda(discriminator)(x_sub)
+            x_sub = Lambda(mbatch_discriminate)(x_sub)
             concat = Concatenate(axis=1)([x, x_sub])
             return concat
 
-        def discriminator(x_sub):
+        def mbatch_discriminate(x_sub):
             x_sub = kback.expand_dims(x_sub, 3) - \
                 kback.expand_dims(kback.permute_dimensions(x_sub, [1, 2, 0]), 0)
             x_sub = kback.sum(kback.abs(x_sub), axis=2)
@@ -191,7 +191,7 @@ class GAN:
 
         x = add_block(inp, self.min_filters, input_shape=self.x_shape)
         for i in range(1, self.num_blocks):
-            x = add_block(x, self.min_filters * (self.strides**i))
+            x = add_block(x, int(self.min_filters * (self.strides**i)))
 
         x = GlobalAveragePooling2D()(x)
 
@@ -239,22 +239,13 @@ class GAN:
         x =  add_block(x, num_filters, strides=(1,1))
 
         for i in range(1, self.num_blocks):
-            x = add_block(x, num_filters/(2**i))
+            x = add_block(x, int(num_filters/(2**i)))
 
         # Add channels (e.g. RGB)
         x = Conv2DTranspose(self.x_shape[-1], self.kernal_size,
             padding="same", strides=self.strides, use_bias=False, activation="tanh")(x)
 
         return Model(inputs=inp, outputs=x, name="generator")
-
-    @staticmethod
-    def conv_output_shape(inp_sizes, stride, num_blocks):
-        inp_sizes = list(inp_sizes)
-        for _ in range(num_blocks):
-            for i, size in enumerate(inp_sizes):
-                inp_sizes[i] = ceil(float(size)/float(stride))
-
-        return inp_sizes
 
     def create_combined(self):
         combined = Sequential(name="combined")

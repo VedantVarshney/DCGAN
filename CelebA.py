@@ -8,9 +8,20 @@ from glob import glob
 
 IMGS_DIR = "../CelebFaces_A_Dataset/img_align_celeba"
 
-def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_label=1,
-    channels=3):
-    img_gen = image.ImageDataGenerator(rescale=1/255.)
+# TODO - change colour space from default RGB to LAB
+# TODO - crop image! Wrap next(img_flow) in a custom generator.
+# TODO - normalise image
+
+def preproc_img(img):
+    return img - 0.5
+
+def postproc_img(img):
+    return (img + 0.5)*255
+
+
+def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_label=1):
+    img_gen = image.ImageDataGenerator(rescale=1/255.,
+        preprocessing_function=preproc_img)
 
     img_flow = img_gen.flow_from_directory(imgs_dir,
                 class_mode="binary",
@@ -22,12 +33,3 @@ def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_l
 
     while True:
         yield next(img_flow)
-
-    # TODO - crop image! Wrap next(img_flow) in a custom generator.
-
-def main(imgs_dir):
-    gen = gen_real_img_batch(imgs_dir)
-    return gen
-
-if __name__ == '__main__':
-    main()

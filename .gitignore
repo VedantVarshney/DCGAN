@@ -2,6 +2,8 @@ Training_Runs/
 .DS_Store
 __pycache__/
 
+.coverage
+
 *.p
 *.csv
 
