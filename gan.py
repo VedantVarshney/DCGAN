@@ -42,8 +42,8 @@ import numpy as np
 
 class GAN:
     def __init__(self, x_shape, kernal_size,
-                num_blocks=2, min_filters=64, latent_dims=100, strides=2, lr=1e-4,
-                verbose=True, load_dir=None):
+                num_blocks=2, min_filters_discr=64, min_filters_gen=256,
+                latent_dims=100, strides=2, lr=1e-4,verbose=True, load_dir=None):
         """
         Arguments:
         - x_shape - shape of a single x sample (excl. batch dimension)
@@ -65,7 +65,8 @@ class GAN:
         self.x_shape = x_shape
         self.kernal_size = kernal_size
         self.num_blocks = num_blocks
-        self.min_filters = min_filters
+        self.min_filters_discr = min_filters_discr
+        self.min_filters_gen = min_filters_gen
         self.latent_dims = latent_dims
         self.strides = strides
 
@@ -87,12 +88,12 @@ class GAN:
             self.print_summary()
 
     @classmethod
-    def load(cls, gan_fpath, model_dir=None):
+    def load(cls, gan_fpath, model_dir=None, verbose=True):
         model = pickle.load(open(gan_fpath, "rb"))
         if model_dir is None:
             model.reset_models()
         else:
-            model.load_model(model_dir)
+            model.load_model(model_dir, verbose=verbose)
         return model
 
     def __getstate__(self):
@@ -189,9 +190,9 @@ class GAN:
 
         inp = Input(shape=self.x_shape)
 
-        x = add_block(inp, self.min_filters, input_shape=self.x_shape)
+        x = add_block(inp, self.min_filters_discr, input_shape=self.x_shape)
         for i in range(1, self.num_blocks):
-            x = add_block(x, int(self.min_filters * (self.strides**i)))
+            x = add_block(x, int(self.min_filters_discr * (self.strides**i)))
 
         x = GlobalAveragePooling2D()(x)
 
@@ -219,7 +220,7 @@ class GAN:
         inp = Input(shape=(self.latent_dims, ))
 
         # TODO - maybe change number of filters increasing expon. with stride.
-        num_filters = int(self.min_filters * (self.strides**(self.num_blocks-1)))
+        num_filters = int(self.min_filters_gen * (self.strides**(self.num_blocks-1)))
 
         disc_output_spatial_dim = [int(dim/self.strides**self.num_blocks) \
             for dim in self.x_shape[:-1]]
@@ -405,12 +406,12 @@ class GAN:
                 self.history.disc_loss.append(disc_loss)
                 self.history.gen_loss.append(gen_loss)
 
-                pbar.set_postfix({"disc_loss": disc_loss, "gen_loss": gen_loss})
+                pbar.set_postfix({"epoch": epoch+1, "disc_loss": disc_loss, "gen_loss": gen_loss})
 
                 # HACK - investigate why step isn't already an int
                 if (int(step+1)/progress_steps).is_integer():
                     if (show_imgs or save_imgs):
-                        fig = self.generate_imgs(postproc_func=postproc_func)
+                        fig = self.generate_imgs(postproc_func=postproc_func, cmap=cmap)
 
                         if save_imgs:
                             plt.savefig(f"{run_dir}/img_epoch{epoch+1}_step{step+1}.png")

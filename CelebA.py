@@ -15,13 +15,16 @@ IMGS_DIR = "../CelebFaces_A_Dataset/img_align_celeba"
 def preproc_img(img):
     return img - 0.5
 
-def postproc_img(img):
-    return (img + 0.5)
+def postproc_imgs(imgs):
+    # image clipping handled by plt.imshow automatically
+    # No need to multiply by 255 and cast as int
+    return imgs + 0.5/255
 
 
-def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_label=1):
-    img_gen = image.ImageDataGenerator(rescale=1/255.)
-        # preprocessing_function=preproc_img)
+def gen_real_img_batch(imgs_dir, target_size=(64, 64), batch_size=32, positive_label=1,
+    face_height=32, face_width=32):
+    img_gen = image.ImageDataGenerator(rescale=1/255.,
+            preprocessing_function=preproc_img)
 
     img_flow = img_gen.flow_from_directory(imgs_dir,
                 class_mode="binary",
@@ -32,4 +35,11 @@ def gen_real_img_batch(imgs_dir, target_size=(28, 28), batch_size=32, positive_l
     img_flow.class_indices = {"real", positive_label}
 
     while True:
-        yield next(img_flow)
+        x_batch, y_batch = next(img_flow)
+        image_height, image_width = x_batch.shape[1:3]
+        y_crop = (image_height - face_height) //2
+        x_crop = (image_width - face_width) // 2
+
+        x_batch = x_batch[:, y_crop:-y_crop, x_crop: -x_crop, :]
+
+        yield x_batch, y_batch
