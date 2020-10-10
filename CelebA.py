@@ -21,8 +21,8 @@ def postproc_imgs(imgs):
     return imgs + 128/255
 
 
-def gen_real_img_batch(imgs_dir, target_size=(64, 64), batch_size=32, positive_label=1,
-    face_height=32, face_width=32):
+def gen_real_img_batch(imgs_dir, target_size=(256, 256), batch_size=32, positive_label=1,
+    face_height=128, face_width=128):
     img_gen = image.ImageDataGenerator(rescale=1/255.,
             preprocessing_function=preproc_img)
 

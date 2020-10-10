@@ -39,24 +39,48 @@ class TestModelSaveLoad(tf.test.TestCase):
                 print(f"Error deleting {dir_path}: {e.strerror}")
 
     def test_model_save(self):
-        discr_x = np.ones(shape=(1, *self.model.x_shape))
-        comb_x = np.ones(shape=(1, self.model.latent_dims))
-        y = np.ones(shape=(1, 1))
+        # HACK - run 10 training steps to semi-ensure all params change
+        discr_x = np.ones(shape=(10, *self.model.x_shape))
+        comb_x = np.ones(shape=(10, self.model.latent_dims))
+        y = np.ones(shape=(10, 1))
+
+        assert self.model.discriminator.trainable == False
 
         self.model.discriminator.train_on_batch(discr_x, y)
         self.model.combined.train_on_batch(comb_x, y)
+
         self.model.save(self.gan_fpath, model_dir=self.model_dir)
 
+        # Check files were saved
         assert os.path.isfile(self.gan_fpath)
         assert os.path.isdir(self.model_dir)
 
         # Load saved model
         model2 = GAN.load(self.gan_fpath, model_dir=self.model_dir, verbose=False)
 
+        assert model2.discriminator.trainable == False
+
+        self.model.discriminator.trainable = True
+        model2.discriminator.trainable = True
+
+        assert len(self.model.discriminator.trainable_variables) > 0
+
+        # Check discriminator variables are the same
         for (a, b) in zip(self.model.discriminator.trainable_variables, model2.discriminator.trainable_variables):
-            assert (a == b).any()
+            assert (a.numpy() == b.numpy()).any()
+
+        self.model.discriminator.trainable = False
+        model2.discriminator.trainable = False
+
+        assert len(self.model.generator.trainable_variables) > 0
+
+        # Check all variables are the same
+        for (a, b) in zip(self.model.generator.trainable_variables, model2.generator.trainable_variables):
+            # Convert eager tensor to numpy
+            assert (a.numpy() == b.numpy()).any()
 
         remove_params = ["discriminator", "generator", "combined"]
+        # TODO - check this is a deep copy?
         model_dicts = (self.model.__dict__.copy(), model2.__dict__.copy())
 
         # Check two saved and loaded instance have same attributes
@@ -67,14 +91,6 @@ class TestModelSaveLoad(tf.test.TestCase):
 
         # Check all non-model attributes are the same for saved and loaded model
         self.assertEqual(*[[model[key] for key in keys] for model in model_dicts])
-
-        for (a, b) in zip(self.model.discriminator.get_weights(), model2.discriminator.get_weights()):
-            assert (a == b).any()
-
-        # Check all trainable variables are the same
-        for (a, b) in zip(self.model.combined.trainable_variables, model2.combined.trainable_variables):
-            # Convert eager tensor to numpy
-            assert (a.numpy() == b.numpy()).any()
 
 
 if __name__ == '__main__':

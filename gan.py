@@ -131,6 +131,7 @@ class GAN:
         # load models and associated history
         # Usually called manually after a pickle load of all other attributes
         self.discriminator = load_model(f"{load_dir}/discriminator")
+        self.discriminator.trainable = False
         self.generator = load_model(f"{load_dir}/generator")
         self.combined = load_model(f"{load_dir}/combined")
         self.history = pickle.load(open(f"{load_dir}/history.p", "rb"))
