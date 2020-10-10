@@ -16,6 +16,7 @@ class TestModelTraining(tf.test.TestCase):
 
     def setUp(self):
         super().setUp()
+        clear_session()
         self.model = GAN(x_shape=(28, 28, 1), kernal_size=5, verbose=False,
             num_blocks=2, latent_dims=100, strides=2)
 
@@ -23,13 +24,12 @@ class TestModelTraining(tf.test.TestCase):
         del self.model
         clear_session()
 
-    # TODO - Trainable variables nor get_weights() changes after training?!
     def test_discriminator_trains(self):
         """
         Test whether a train step updates all trainable variables for the discriminator.
         """
 
-        # HACK - run 10 training steps to semi-ensure all params change
+        # HACK - run 10 training steps to 'semi-ensure' all params change
         data = (np.ones(shape=(10, *self.model.x_shape)), np.ones(shape=(10, 1)))
 
         assert self.model.discriminator.trainable == False

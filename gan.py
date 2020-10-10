@@ -1,9 +1,9 @@
 """
-Generative Adversarial Network (GAN) implementation
+Deep Convolutional Generative Adversarial Network (GAN) with additional features
+for improved stability and convergence
 Date: 02/10/2020
 
 References:
-Model architecture built on top of that from:
 Michel Kana, Ph.D.
 https://towardsdatascience.com/generative-adversarial-network-gan-for-dummies-a-step-by-step-tutorial-fdefff170391
 """
@@ -16,10 +16,10 @@ import tensorflow as tf
 from tensorflow.keras.models import Model, Sequential, load_model
 from tensorflow.keras.layers import \
 Dense, Dropout, Conv2D, Flatten, BatchNormalization, Conv2DTranspose, \
-Reshape, Input, GlobalAveragePooling2D, Activation, Lambda, Concatenate
+Reshape, Input, GlobalAveragePooling2D, Activation, Lambda, Concatenate, \
+LeakyReLU, Layer
 
 import tensorflow.keras.activations as activations
-from tensorflow.keras.layers import LeakyReLU, Layer
 
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import BinaryCrossentropy
@@ -33,8 +33,6 @@ from functools import reduce
 import inspect, os, pickle, types
 from contextlib import redirect_stdout
 from uuid import uuid4
-
-from math import ceil
 
 from tqdm.auto import trange
 from matplotlib import pyplot as plt
@@ -321,6 +319,8 @@ class GAN:
         - total_real - must provide if generator passed as real_train.
         - progress_frac - show/save progress images every {progress_frac} epoch.
         E.g. every 1 epoch, every 0.25 epochs etc.
+        - postproc_func - postprocess images before display/save
+        - epoch_start - manually enter an epoch start if cannot be retrieved
 
         Outputs:
         - Updates weights of GAN instance
@@ -356,7 +356,10 @@ class GAN:
             with redirect_stdout(f):
                 self.print_summary()
 
-        self.history = History(run_id)
+        if self.history is None:
+            self.history = History(run_id)
+        else:
+            assert isinstance(self.history, History)
 
         # TODO - Warn np array dataset is truncated to be divisible by batch size.
         steps = int(total_real//batch_size)
@@ -408,7 +411,7 @@ class GAN:
                 self.history.disc_loss.append(disc_loss)
                 self.history.gen_loss.append(gen_loss)
 
-                pbar.set_postfix({"epoch": epoch+1, "disc_loss": disc_loss, "gen_loss": gen_loss})
+                pbar.set_postfix({"epoch": self.history.epoch, "disc_loss": disc_loss, "gen_loss": gen_loss})
 
                 # HACK - investigate why step isn't already an int
                 if (int(step+1)/progress_steps).is_integer():
@@ -416,10 +419,12 @@ class GAN:
                         fig = self.generate_imgs(postproc_func=postproc_func, cmap=cmap)
 
                         if save_imgs:
-                            plt.savefig(f"{run_dir}/img_epoch{epoch+1}_step{step+1}.png")
+                            plt.savefig(f"{run_dir}/img_epoch{self.history.epoch}_step{step+1}.png")
                         if  show_imgs:
                             plt.show()
                         else:
                             plt.clf()
+
+            self.history.epoch += 1
 
         pickle.dump(self.history, open(f"{run_dir}/history.p", "wb"))
