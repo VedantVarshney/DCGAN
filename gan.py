@@ -43,7 +43,7 @@ import numpy as np
 class GAN:
     def __init__(self, x_shape, kernal_size,
                 num_blocks=2, min_filters_discr=64, min_filters_gen=256,
-                latent_dims=100, strides=2, lr=1e-4,verbose=True, load_dir=None):
+                latent_dims=100, strides=2, lr=1e-4, beta_1=0.45, verbose=True):
         """
         Arguments:
         - x_shape - shape of a single x sample (excl. batch dimension)
@@ -53,7 +53,7 @@ class GAN:
         - latent_dims - number of latent dimensions for Generator (optional)
         - strides - strides for convolutions (optional)
         - lr - learning rate (optional). (gen_lr, disc_lr) or int.
-        - load_dir - path of dir containing saved model to load
+        - beta_1 - beta_1 param for all Adam optimisers
         """
         assert len(x_shape) == 3
 
@@ -69,6 +69,7 @@ class GAN:
         self.min_filters_gen = min_filters_gen
         self.latent_dims = latent_dims
         self.strides = strides
+        self.beta_1 = beta_1
 
         if isinstance(lr, float):
             self.gen_lr = lr
@@ -204,7 +205,7 @@ class GAN:
         discriminator = Model(inputs=inp, outputs=concat, name="discriminator")
 
         discriminator.compile(loss=BinaryCrossentropy(from_logits=True),
-            optimizer=Adam(lr=self.disc_lr), metrics=["mae"])
+            optimizer=Adam(lr=self.disc_lr, beta_1=self.beta_1), metrics=["mae"])
 
         return discriminator
 
@@ -256,7 +257,7 @@ class GAN:
         self.discriminator.trainable = False
 
         combined.compile(loss=BinaryCrossentropy(from_logits=True),
-            optimizer=Adam(lr=self.gen_lr), metrics=['mae'])
+            optimizer=Adam(lr=self.gen_lr, beta_1=self.beta_1), metrics=['mae'])
 
         return combined
 

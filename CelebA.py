@@ -13,12 +13,12 @@ IMGS_DIR = "../CelebFaces_A_Dataset/img_align_celeba"
 # TODO - normalise image
 
 def preproc_img(img):
-    return img - 0.5
+    return img - 128.
 
 def postproc_imgs(imgs):
     # image clipping handled by plt.imshow automatically
     # No need to multiply by 255 and cast as int
-    return imgs + 0.5/255
+    return imgs + 128/255
 
 
 def gen_real_img_batch(imgs_dir, target_size=(64, 64), batch_size=32, positive_label=1,
