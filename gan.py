@@ -88,11 +88,15 @@ class GAN:
 
     @classmethod
     def load(cls, gan_fpath, model_dir=None, verbose=True):
+        assert os.path.isfile(gan_fpath)
         model = pickle.load(open(gan_fpath, "rb"))
+        assert isinstance(model, GAN)
         if model_dir is None:
             model.reset_models()
         else:
+            assert os.path.isdir(model_dir)
             model.load_model(model_dir, verbose=verbose)
+
         return model
 
     def __getstate__(self):
@@ -302,11 +306,11 @@ class GAN:
             postproc_func=None):
         """
         Arguments:
-        - real_train - Either nparray of real samples.
-        Shape (num_samples, spatial_dim, spatial_dim, channels)
+        - real_train - Either np array of real samples with a
+        shape (num_samples, spatial_dim, spatial_dim, channels)
         OR a batch generator. Must then provide total_real.
         - num_epochs - number of epochs to run (int)
-        - batch_size - (int). Must match that of batch generator (if used).
+        - batch_size - Must match that of batch generator (if used).
         - disc_updates - number of batch updates to perform per step for the
         Discriminator before switching to the Generator (int)
         - gen_updates - number of batch updates to perform per step for the
@@ -319,14 +323,7 @@ class GAN:
         - total_real - must provide if generator passed as real_train.
         - progress_frac - show/save progress images every {progress_frac} epoch.
         E.g. every 1 epoch, every 0.25 epochs etc.
-        - postproc_func - postprocess images before display/save
-        - epoch_start - manually enter an epoch start if cannot be retrieved
-
-        Outputs:
-        - Updates weights of GAN instance
-        - Rewrites run history of GAN instance
-        - Creates new directory to save history pickle and progress images
-        - Displays progressbars and progress images
+        - postproc_func - call a postprocess func with images before display/save
         """
         if not isinstance(real_train, types.GeneratorType):
             assert isinstance(real_train, np.ndarray)
@@ -361,7 +358,7 @@ class GAN:
         else:
             assert isinstance(self.history, History)
 
-        # TODO - Warn np array dataset is truncated to be divisible by batch size.
+        # TODO - Warn user np array dataset is truncated to be divisible by batch size.
         steps = int(total_real//batch_size)
 
         progress_steps = int(progress_frac * steps)
