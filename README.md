@@ -1,4 +1,4 @@
-# GAN Practice
+# DCGAN
 
 A project for implementing Deep Convolutional Generative Adversarial Networks (DCGANs) and investigating the effectiveness of various heuristic and theoretically-sound additions on a variety of standard datasets (namely MNIST, MNIST Fashion and CelebA).
 
